@@ -396,7 +396,6 @@ body.editing-vertex { cursor: move; }
 
   /* Botão de bacias no header fica menor */
   #poly-toggle { padding: 6px 10px; font-size: 13px; }
-  #poly-toggle span.label-text { display: none; }
 }
 </style>
 </head>
@@ -1028,6 +1027,13 @@ function startAutoBasin() {
   btn.style.background = '#c62828';
   btn.style.borderColor = '#c62828';
 
+  // No mobile: fecha o painel e mostra instrução no mapa
+  if (window.innerWidth <= 768) {
+    closePolyPanel();
+    closeMenu();
+    document.getElementById('map-instruction').style.display = 'block';
+  }
+
   map.once('click', handleAutoBasinClick);
 }
 
@@ -1035,6 +1041,7 @@ function cancelAutoBasin() {
   autoBasinMode = false;
   map.getCanvas().style.cursor = '';
   document.getElementById('auto-basin-status').style.display = 'none';
+  document.getElementById('map-instruction').style.display = 'none';
   map.off('click', handleAutoBasinClick);
 
   const btn = document.getElementById('btn-auto-basin');
@@ -1047,6 +1054,7 @@ function cancelAutoBasin() {
 async function handleAutoBasinClick(e) {
   autoBasinMode = false;
   map.getCanvas().style.cursor = 'wait';
+  document.getElementById('map-instruction').style.display = 'none';
 
   const { lat, lng } = e.lngLat;
   const statusEl = document.getElementById('auto-basin-status');
