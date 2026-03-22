@@ -1,0 +1,1736 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Atlas Topográfico e Hidrológico Profissional</title>
+
+<!-- Fontes -->
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=EB+Garamond:ital,wght@0,400;0,700;1,400&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+
+<!-- MapLibre GL -->
+<script src="https://unpkg.com/maplibre-gl/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl/dist/maplibre-gl.css" rel="stylesheet" />
+
+<!-- Turf.js para cálculos geoespaciais -->
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+<!-- Font Awesome para ícones -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<!-- Preconnect para performance -->
+<link rel="preconnect" href="https://api.maptiler.com">
+<link rel="preconnect" href="https://tiles.openfreemap.org">
+
+<style>
+/* ── Variáveis CSS dinâmicas baseadas no tema ────────────────────────────── */
+:root {
+  --bg: #eaddcf;
+  --surface: rgba(244, 232, 216, 0.95);
+  --surface2: rgba(225, 209, 189, 0.95);
+  --border: #a89078;
+  --border-strong: #5c4226;
+  --accent: #5c746a; 
+  --text: #3e2723;
+  --text-dim: #5d4037;
+  --text-muted: #8d6e63;
+  --glow: rgba(0, 0, 0, 0.08);
+}
+
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'EB Garamond', serif;
+  overflow: hidden;
+  height: 100vh;
+  transition: background 0.6s ease;
+  cursor: crosshair;
+}
+
+#logo, #load-logo { font-family: 'Cinzel', serif; font-weight: 700; }
+#header-meta, .section-title, #coords, #zoom-display, #badge {
+  font-family: 'IM Fell English', serif;
+  font-style: italic; font-size: 15px; letter-spacing: 0.05em; text-transform: none;
+}
+
+#map { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+.maplibregl-ctrl-attrib, .maplibregl-ctrl-logo { display: none !important; }
+.maplibregl-ctrl-group {
+  background: var(--surface2) !important;
+  border: 2px solid var(--border-strong) !important;
+  border-radius: 2px !important;
+  overflow: hidden;
+  box-shadow: 2px 4px 10px rgba(0,0,0,0.15) !important;
+}
+.maplibregl-ctrl-group button {
+  background: transparent !important; color: var(--accent) !important;
+  width: 32px !important; height: 32px !important;
+}
+.maplibregl-ctrl-group button:hover { background: var(--glow) !important; }
+
+/* ── Elementos da Interface (UI) ──────────────────────────────────────────── */
+#header, #layers, #themes, #bottom-bar {
+  backdrop-filter: none !important;
+  box-shadow: 2px 4px 10px rgba(0,0,0,0.15), inset 0 0 0 1px var(--border) !important;
+  border: 2px solid var(--border-strong) !important;
+  border-radius: 2px !important;
+}
+
+#header {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 200;
+  padding: 0 32px; height: 64px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--surface2);
+  animation: slideDown 0.8s cubic-bezier(0.16,1,0.3,1) both;
+}
+@keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+#header-left { display: flex; align-items: center; gap: 20px; }
+#logo { font-size: 22px; color: var(--text); }
+#logo span { color: var(--accent); }
+#header-divider { width: 1px; height: 28px; background: var(--border-strong); opacity: 0.5; }
+#header-meta { color: var(--text-dim); line-height: 1.2; }
+#header-right { display: flex; align-items: center; gap: 12px; }
+
+#live-dot {
+  display: flex; align-items: center; gap: 6px;
+  font-family: 'EB Garamond', serif; font-size: 14px; color: var(--accent); font-weight: bold;
+}
+#live-dot::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 6px var(--accent);
+  animation: pulse-dot 2s infinite;
+}
+@keyframes pulse-dot { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
+
+#left-controls {
+  position: absolute; top: 76px; left: 24px; z-index: 200;
+  display: flex; flex-direction: column; gap: 10px; width: 240px;
+  animation: slideInLeft 0.8s 0.4s cubic-bezier(0.16,1,0.3,1) both;
+}
+@keyframes slideInLeft { from { transform: translateX(-40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+#layers, #themes {
+  background: var(--surface); padding: 14px 16px;
+  transition: background 0.4s, border-color 0.4s;
+}
+
+.section-title { color: var(--text-muted); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-weight: bold; }
+.lrow {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  cursor: pointer; user-select: none; padding: 4px 6px; transition: background 0.2s;
+}
+.lrow:last-child { margin-bottom: 0; }
+.lrow:hover { background: var(--glow); }
+.lrow.off { opacity: 0.4; }
+.ldot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; transition: all 0.2s; border: 1px solid rgba(0,0,0,0.2); }
+.lrow:not(.off) .ldot { box-shadow: 0 0 8px currentColor; }
+.llabel { font-size: 15px; color: var(--text); transition: color 0.2s; font-weight: bold; }
+.lsep { height: 1px; background: var(--border); margin: 10px 0; }
+
+.theme-grid { display: flex; flex-direction: column; gap: 8px; }
+.theme-btn {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 2px; border: 1px solid transparent; cursor: pointer; transition: all 0.2s; background: transparent;
+}
+.theme-btn:hover { background: var(--glow); border-color: var(--border); }
+.theme-btn.active { border-color: var(--border-strong); background: var(--glow); }
+.theme-swatch { width: 22px; height: 22px; border-radius: 2px; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.3); }
+.theme-name { font-size: 15px; color: var(--text-dim); line-height: 1; font-weight: bold; }
+.theme-btn.active .theme-name { color: var(--text); }
+
+#bottom-bar {
+  position: absolute; bottom: 0; left: 0; right: 0; z-index: 200;
+  height: 40px; background: var(--surface2); border-top: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 24px; justify-content: space-between;
+  animation: slideUp 0.8s 0.6s cubic-bezier(0.16,1,0.3,1) both;
+}
+@keyframes slideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+#coords { color: var(--text-dim); min-width: 220px; font-weight: bold; }
+#bottom-center { display: flex; align-items: center; gap: 16px; }
+#zoom-display { color: var(--text-muted); font-weight: bold; }
+#pitch-btn {
+  font-family: 'EB Garamond', serif; font-size: 14px; color: var(--text-dim); font-weight: bold;
+  background: transparent; border: 1px solid var(--border); border-radius: 2px;
+  padding: 4px 12px; cursor: pointer; transition: all 0.2s;
+}
+#pitch-btn:hover { border-color: var(--accent); color: var(--accent); }
+#pitch-btn.active { border-color: var(--accent); color: var(--accent); background: var(--glow); }
+#badge { color: var(--text-muted); }
+
+#loading {
+  position: fixed; inset: 0; z-index: 9000; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 20px; transition: opacity 1s ease;
+}
+#loading.hide { opacity: 0; pointer-events: none; }
+#load-logo { font-size: 40px; color: var(--text); }
+#load-logo span { color: var(--accent); }
+#load-sub { font-size: 16px; color: var(--text-dim); font-style: italic; }
+.lbar-wrap { width: 200px; height: 2px; background: var(--border); position: relative; overflow: hidden; }
+.lbar { height: 100%; width: 0%; background: var(--accent); box-shadow: 0 0 12px var(--accent); transition: width 0.4s ease; }
+#load-msg { font-size: 14px; color: var(--text-muted); }
+
+/* ── Painel de Polígonos ────────────────────────────────────────────────── */
+#poly-panel {
+  position: absolute; right: 24px; top: 76px; z-index: 200;
+  width: 340px; background: var(--surface); 
+  border: 2px solid var(--border-strong); border-radius: 2px;
+  padding: 16px; box-shadow: 2px 4px 10px rgba(0,0,0,0.15);
+  animation: slideInRight 0.8s 0.4s cubic-bezier(0.16,1,0.3,1) both;
+  display: none;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+}
+@keyframes slideInRight { from { transform: translateX(40px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+#poly-panel.active { display: block; }
+
+.poly-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+.poly-title { font-family: 'Cinzel', serif; font-weight: 700; color: var(--text); }
+.poly-close {
+  background: none; border: none; color: var(--text-muted); 
+  font-size: 18px; cursor: pointer; padding: 4px; transition: color 0.2s;
+}
+.poly-close:hover { color: var(--accent); }
+
+.poly-section { margin-bottom: 16px; }
+.poly-section-title {
+  font-size: 14px; color: var(--text-muted); margin-bottom: 8px;
+  text-transform: uppercase; letter-spacing: 0.05em; font-weight: bold;
+}
+
+/* Botões de ação */
+.poly-btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+.poly-btn {
+  flex: 1; min-width: 70px; padding: 8px 12px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 2px; color: var(--text); font-family: 'EB Garamond', serif;
+  font-size: 13px; cursor: pointer; transition: all 0.2s;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.poly-btn:hover { background: var(--glow); border-color: var(--accent); }
+.poly-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.poly-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.poly-btn.primary:hover { filter: brightness(1.1); }
+.poly-btn.danger { border-color: #c62828; color: #c62828; }
+.poly-btn.danger:hover { background: rgba(198,40,40,0.1); }
+
+/* Inputs do painel */
+.poly-input-group { margin-bottom: 12px; }
+.poly-input-group label {
+  display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 4px;
+}
+.poly-input {
+  width: 100%; padding: 8px 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 2px; color: var(--text); font-family: 'EB Garamond', serif;
+  font-size: 14px; transition: border-color 0.2s;
+}
+.poly-input:focus { outline: none; border-color: var(--accent); }
+.poly-input-row { display: flex; gap: 10px; }
+.poly-input-row .poly-input-group { flex: 1; margin-bottom: 0; }
+
+/* Select personalizado */
+.poly-select {
+  width: 100%; padding: 8px 10px;
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 2px; color: var(--text); font-family: 'EB Garamond', serif;
+  font-size: 14px; cursor: pointer; transition: border-color 0.2s;
+}
+.poly-select:focus { outline: none; border-color: var(--accent); }
+
+/* Resultados */
+.poly-result {
+  background: var(--surface2); border-left: 3px solid var(--accent);
+  padding: 10px 12px; margin-top: 8px; border-radius: 0 2px 2px 0;
+}
+.poly-result-value { font-size: 18px; font-weight: bold; color: var(--text); }
+.poly-result-label { font-size: 12px; color: var(--text-muted); }
+.poly-result-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+/* Instruções de desenho */
+.poly-instructions {
+  font-size: 12px; color: var(--text-muted); line-height: 1.5;
+  background: rgba(92,116,106,0.1); border: 1px dashed var(--border);
+  padding: 10px; border-radius: 2px; margin-bottom: 12px;
+}
+.poly-instructions strong { color: var(--accent); }
+
+/* Cursor durante desenho */
+body.drawing-polygon { cursor: crosshair; }
+body.editing-vertex { cursor: move; }
+
+/* Popups */
+.maplibregl-popup { font-family: 'EB Garamond', serif; }
+.maplibregl-popup .maplibregl-popup-content {
+  background: var(--surface); border: 2px solid var(--border-strong);
+  border-radius: 2px; padding: 12px; box-shadow: 2px 4px 10px rgba(0,0,0,0.2);
+}
+.maplibregl-popup .maplibregl-popup-tip { border-top-color: var(--border-strong); }
+
+/* Slider personalizado */
+.poly-slider {
+  width: 100%; height: 4px; background: var(--border); border-radius: 2px;
+  outline: none; -webkit-appearance: none;
+}
+.poly-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px;
+  background: var(--accent); border-radius: 50%; cursor: pointer;
+  border: 2px solid var(--surface); transition: transform 0.2s;
+}
+.poly-slider::-webkit-slider-thumb:hover { transform: scale(1.2); }
+
+/* Botão de abrir painel de polígonos */
+#poly-toggle {
+  background:transparent; border:1px solid var(--border); border-radius:2px;
+  color:var(--text-dim); padding:6px 12px; cursor:pointer;
+  font-family:'EB Garamond',serif; display:flex; align-items:center; gap:6px;
+  transition:all 0.2s; font-size:14px;
+}
+#poly-toggle:hover { border-color: var(--accent); color: var(--accent); background: var(--glow); }
+
+/* Info box para método SCS-CN */
+.method-info {
+  background: rgba(92,116,106,0.05); border: 1px solid var(--border);
+  border-radius: 2px; padding: 8px 10px; margin-top: 8px;
+  font-size: 11px; color: var(--text-muted); line-height: 1.4;
+}
+.method-info i { color: var(--accent); margin-right: 4px; }
+
+/* Badge de método */
+.method-badge {
+  display: inline-block; padding: 2px 8px; border-radius: 2px;
+  font-size: 10px; font-weight: bold; text-transform: uppercase;
+  letter-spacing: 0.05em; margin-left: 8px;
+}
+.method-badge.scs { background: var(--accent); color: #fff; }
+.method-badge.simple { background: var(--border); color: var(--text-dim); }
+
+/* Responsividade mobile */
+@media (max-width: 768px) {
+  #poly-panel {
+    width: calc(100vw - 48px);
+    right: 24px;
+    left: 24px;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+  .poly-input-row { flex-direction: column; gap: 8px; }
+  #left-controls { width: 200px; }
+  #header { padding: 0 16px; }
+  #bottom-bar { padding: 0 16px; flex-wrap: wrap; height: auto; padding: 8px 16px; }
+  #coords { min-width: auto; font-size: 13px; }
+}
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div id="load-logo">Atlas <span>Topográfico</span></div>
+  <div id="load-sub">Sistema Profissional de Cartografia Hidrológica (SCS-CN)</div>
+  <div class="lbar-wrap"><div class="lbar" id="lbar"></div></div>
+  <div id="load-msg">inicializando...</div>
+</div>
+
+<div id="map"></div>
+
+<!-- Header -->
+<div id="header">
+  <div id="header-left">
+    <div id="logo">Atlas <span>Topográfico</span></div>
+    <div id="header-divider"></div>
+    <div id="header-meta">
+      Cartografia Profissional<br>
+      Método SCS-CN para Hidrologia
+    </div>
+  </div>
+  <div id="header-right">
+    <button id="poly-toggle" onclick="openPolyPanel()" title="Ferramentas de Bacia Hidrográfica">
+      <i class="fas fa-draw-polygon"></i> Bacias
+    </button>
+    <div id="live-dot">MapTiler Terrain</div>
+  </div>
+</div>
+
+<!-- Left controls -->
+<div id="left-controls">
+  <!-- Layers -->
+  <div id="layers">
+    <div class="section-title">Camadas Visuais</div>
+    <div class="lrow" id="lr-hypsometry" onclick="toggleLayer('hypsometry')">
+      <div class="ldot" style="background:linear-gradient(135deg,#a6937e,#dcbfa3,#5c4226);color:#a6937e"></div>
+      <span class="llabel">Hipsometria (Relevo)</span>
+    </div>
+    <div class="lrow" id="lr-hillshade" onclick="toggleLayer('hillshade')">
+      <div class="ldot" style="background:#8B7355;color:#8B7355"></div>
+      <span class="llabel">Sombras 3D Base</span>
+    </div>
+    <div class="lsep"></div>
+    <div class="lrow" id="lr-contours" onclick="toggleLayer('contours')">
+      <div class="ldot" style="background:#000000;color:#000000"></div>
+      <span class="llabel">Curvas de Nível</span>
+    </div>
+    <div class="lrow" id="lr-buildings" onclick="toggleLayer('buildings')">
+      <div class="ldot" style="background:#8b6e4b;color:#8b6e4b"></div>
+      <span class="llabel">Edifícios 3D (blocos)</span>
+    </div>
+    <div class="lsep"></div>
+    <div class="lrow" id="lr-rivers" onclick="toggleLayer('rivers')">
+      <div class="ldot" style="background:#1a88c8;color:#1a88c8"></div>
+      <span class="llabel">Rios e Córregos</span>
+    </div>
+    <div class="lrow" id="lr-water" onclick="toggleLayer('water')">
+      <div class="ldot" style="background:#0d5fa8;color:#0d5fa8"></div>
+      <span class="llabel">Lagos e Oceanos</span>
+    </div>
+  </div>
+
+  <!-- Temas -->
+  <div id="themes">
+    <div class="section-title">Paleta de Cores Base</div>
+    <div class="theme-grid">
+      <div class="theme-btn active" id="th-pergaminho" onclick="setTheme('pergaminho')">
+        <div class="theme-swatch" style="background:#eaddcf;"></div>
+        <span class="theme-name">Pergaminho Clássico</span>
+      </div>
+      <div class="theme-btn" id="th-magma" onclick="setTheme('magma')">
+        <div class="theme-swatch" style="background:#0c0408; border-color:#ff4820;"></div>
+        <span class="theme-name">Magma Vulcânico</span>
+      </div>
+      <div class="theme-btn" id="th-esmeralda" onclick="setTheme('esmeralda')">
+        <div class="theme-swatch" style="background:#05120a; border-color:#00ff88;"></div>
+        <span class="theme-name">Satélite Esmeralda</span>
+      </div>
+      <div class="theme-btn" id="th-mdt" onclick="setTheme('mdt')">
+        <div class="theme-swatch" style="background:linear-gradient(135deg,#2d5016,#8b7355,#c9b896,#ffffff);"></div>
+        <span class="theme-name">MDT Colorido</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Bottom bar -->
+<div id="bottom-bar">
+  <div id="coords">— · —</div>
+  <div id="bottom-center">
+    <div id="zoom-display">Z: —</div>
+    <button id="pitch-btn" onclick="togglePitch()">3D: ON</button>
+  </div>
+  <div id="badge">SCS-CN · MapTiler · Turf.js</div>
+</div>
+
+<!-- Painel de Polígonos e Hidrologia -->
+<div id="poly-panel">
+  <div class="poly-header">
+    <div class="poly-title"><i class="fas fa-draw-polygon"></i> Bacia Hidrográfica</div>
+    <button class="poly-close" onclick="closePolyPanel()" title="Fechar">&times;</button>
+  </div>
+
+  <!-- Instruções -->
+  <div class="poly-instructions" id="poly-instructions">
+    <strong>Clique</strong> para adicionar vértices • 
+    <strong>Clique duplo</strong> ou no primeiro ponto para fechar • 
+    <strong>Arraste</strong> vértices para editar
+  </div>
+
+  <!-- Botões de controle -->
+  <div class="poly-section">
+    <div class="poly-section-title">Controles</div>
+
+    <!-- Delimitação automática -->
+    <div class="poly-btn-group" style="margin-bottom:8px;">
+      <button class="poly-btn primary" id="btn-auto-basin" onclick="startAutoBasin()" style="width:100%;background:var(--accent);color:#fff;border-color:var(--accent);">
+        <i class="fas fa-crosshairs"></i> Delimitar Bacia (clique no rio)
+      </button>
+    </div>
+    <div id="auto-basin-status" style="display:none;font-size:12px;color:var(--accent);padding:6px 8px;background:rgba(92,116,106,0.1);border:1px dashed var(--border);border-radius:2px;margin-bottom:8px;text-align:center;">
+      <i class="fas fa-crosshairs"></i> Clique num ponto do rio no mapa...
+    </div>
+
+    <div style="height:1px;background:var(--border);margin:8px 0;"></div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">ou desenhe manualmente:</div>
+
+    <div class="poly-btn-group">
+      <button class="poly-btn" id="btn-start-draw" onclick="startDrawing()">
+        <i class="fas fa-pencil-alt"></i> Desenhar
+      </button>
+      <button class="poly-btn" id="btn-edit" onclick="toggleEdit()" disabled>
+        <i class="fas fa-edit"></i> Editar
+      </button>
+      <button class="poly-btn danger" id="btn-delete" onclick="deletePolygon()" disabled>
+        <i class="fas fa-trash"></i> Excluir
+      </button>
+    </div>
+    <div class="poly-btn-group" style="margin-top:8px;">
+      <button class="poly-btn" id="btn-undo" onclick="undoVertex()" disabled>
+        <i class="fas fa-undo"></i> Desfazer
+      </button>
+      <button class="poly-btn" id="btn-clear" onclick="clearDrawing()">
+        <i class="fas fa-eraser"></i> Limpar
+      </button>
+    </div>
+  </div>
+
+  <!-- Resultados da área -->
+  <div class="poly-section" id="area-section" style="display:none;">
+    <div class="poly-section-title">Área da Bacia</div>
+    <div class="poly-result">
+      <div class="poly-result-value" id="area-value">—</div>
+      <div class="poly-result-label" id="area-unit">hectares</div>
+    </div>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+      Perímetro: <span id="perimeter-value">—</span>
+    </div>
+  </div>
+
+  <!-- Separador -->
+  <div style="height:1px;background:var(--border);margin:16px 0;"></div>
+
+  <!-- Parâmetros do Solo e Uso -->
+  <div class="poly-section">
+    <div class="poly-section-title"><i class="fas fa-layer-group"></i> Características da Bacia</div>
+    
+    <div class="poly-input-group">
+      <label>Tipo de Solo (Grupo Hidrológico SCS)</label>
+      <select id="soil-type" class="poly-select" onchange="updateCurveNumber()">
+        <option value="A">Grupo A - Areia/Solto (Alta infiltração)</option>
+        <option value="B" selected>Grupo B - Franco (Infiltração moderada)</option>
+        <option value="C">Grupo C - Franco-argiloso (Baixa infiltração)</option>
+        <option value="D">Grupo D - Argila/Compacto (Muito baixa infiltração)</option>
+      </select>
+      <div class="method-info">
+        <i class="fas fa-info-circle"></i> Define a capacidade de infiltração do solo
+      </div>
+    </div>
+
+    <div class="poly-input-group">
+      <label>Uso e Cobertura do Solo</label>
+      <select id="land-use" class="poly-select" onchange="updateCurveNumber()">
+        <option value="forest">Floresta Nativa (densa)</option>
+        <option value="pasture" selected>Pastagem / Agricultura</option>
+        <option value="urban">Área Urbana (comercial/residencial)</option>
+        <option value="mixed">Misto (rural-urbano)</option>
+        <option value="bare">Solo Exposto / Construção</option>
+      </select>
+      <div class="method-info">
+        <i class="fas fa-info-circle"></i> Afeta o escoamento superficial
+      </div>
+    </div>
+
+    <div class="poly-input-group">
+      <label>Condição de Umidade Anterior (AMC)</label>
+      <select id="amc-condition" class="poly-select" onchange="updateCurveNumber()">
+        <option value="I">AMC I - Solo seco (chuva &lt; 35mm nos 5 dias anteriores)</option>
+        <option value="II" selected>AMC II - Condição média (padrão)</option>
+        <option value="III">AMC III - Solo úmido (chuva &gt; 53mm nos 5 dias anteriores)</option>
+      </select>
+      <div class="method-info">
+        <i class="fas fa-info-circle"></i> Umidade do solo antes do evento de chuva
+      </div>
+    </div>
+
+    <div class="poly-result" id="cn-display" style="display:none;">
+      <div class="poly-result-label">Curve Number (CN) calculado</div>
+      <div class="poly-result-value" id="cn-value">—</div>
+      <div class="poly-result-sub">Método SCS-CN (USDA)</div>
+    </div>
+  </div>
+
+  <!-- Separador -->
+  <div style="height:1px;background:var(--border);margin:16px 0;"></div>
+
+  <!-- Calculador Hidrológico -->
+  <div class="poly-section">
+    <div class="poly-section-title"><i class="fas fa-cloud-rain"></i> Simulador de Chuva <span class="method-badge scs">SCS-CN</span></div>
+    
+    <div class="poly-input-group">
+      <label>Chuva prevista (mm)</label>
+      <input type="number" id="rainfall-input" class="poly-input" placeholder="ex: 50" min="0" step="0.1">
+      <div class="method-info">
+        <i class="fas fa-info-circle"></i> Precipitação total do evento
+      </div>
+    </div>
+    
+    <div class="poly-input-row">
+      <div class="poly-input-group">
+        <label>Largura do rio (m)</label>
+        <input type="number" id="river-width-input" class="poly-input" placeholder="ex: 15" min="0" step="0.1">
+      </div>
+      <div class="poly-input-group">
+        <label>Trecho do rio (km)</label>
+        <input type="number" id="river-length-input" class="poly-input" placeholder="ex: 5" min="0" step="0.1">
+      </div>
+    </div>
+
+    <div class="poly-input-group">
+      <label>Duração da chuva (horas)</label>
+      <input type="number" id="rainfall-duration" class="poly-input" placeholder="ex: 2" min="0.1" step="0.1" value="1">
+      <div class="method-info">
+        <i class="fas fa-info-circle"></i> Usado para calcular vazão de pico
+      </div>
+    </div>
+
+    <div class="poly-input-group">
+      <label>Declividade do rio (%)</label>
+      <input type="number" id="river-slope-input" class="poly-input" placeholder="ex: 0.2" min="0.01" max="10" step="0.01" value="0.2">
+      <div class="method-info">
+        <i class="fas fa-info-circle"></i> Afeta a velocidade do escoamento no canal
+      </div>
+    </div>
+
+    <button class="poly-btn primary" style="width:100%;margin-top:8px;" onclick="calculateHydrology()">
+      <i class="fas fa-calculator"></i> Calcular com SCS-CN
+    </button>
+
+    <!-- Resultados hidrológicos -->
+    <div id="hydro-results" style="display:none;margin-top:12px;">
+      <div class="poly-result">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div>
+            <div class="poly-result-label">Curve Number (CN)</div>
+            <div class="poly-result-value" id="result-cn">—</div>
+          </div>
+          <div>
+            <div class="poly-result-label">Escoamento (mm)</div>
+            <div class="poly-result-value" id="result-runoff">—</div>
+          </div>
+          <div>
+            <div class="poly-result-label">Volume total</div>
+            <div class="poly-result-value" id="result-volume">—</div>
+          </div>
+          <div>
+            <div class="poly-result-label">Tempo de concentração</div>
+            <div class="poly-result-value" id="result-tc">—</div>
+          </div>
+          <div>
+            <div class="poly-result-label">Vazão de pico</div>
+            <div class="poly-result-value" id="result-peak" style="color:#c62828;">—</div>
+          </div>
+          <div>
+            <div class="poly-result-label">Elevação do rio</div>
+            <div class="poly-result-value" id="result-level">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="method-info" style="margin-top:12px;">
+        <i class="fas fa-book"></i> <strong>Método:</strong> SCS-CN (USDA National Engineering Handbook) + Método Racional para vazão de pico + Kirpich para tempo de concentração + Manning para elevação. Precisão: ±30-50% para planejamento preliminar.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── CONFIGURAÇÃO INICIAL ────────────────────────────────────────────────── */
+const MAPTILER_KEY = '__MAPTILER_KEY__';
+const getElevation = ['to-number', ['coalesce', ['get', 'height'], ['get', 'ele'], ['get', 'elevation'], 0]];
+
+/* ── TABELA CURVE NUMBER (SCS) ──────────────────────────────────────────── */
+const CURVE_NUMBERS = {
+  forest:   { A: 30, B: 55, C: 70, D: 77 },
+  pasture:  { A: 39, B: 61, C: 74, D: 80 },
+  urban:    { A: 77, B: 85, C: 90, D: 92 },
+  mixed:    { A: 50, B: 68, C: 79, D: 84 },
+  bare:     { A: 77, B: 86, C: 91, D: 94 }
+};
+
+/* ── OS 4 TEMAS ──────────────────────────────────────────────────────────── */
+const THEMES = {
+  pergaminho: {
+    mapBg: '#eaddcf', water: '#cdd5cb', river: '#5c746a', textColor: '#3e2723',
+    contour: '#000000',
+    shadow:['rgba(60,40,20,0.4)','rgba(40,20,10,0.6)','rgba(30,15,5,0.8)'],
+    highlight:['rgba(255,255,255,0.2)','rgba(255,255,255,0.5)','rgba(255,255,255,0.7)','rgba(255,255,255,0.9)'],
+    accent:['rgba(139,69,19,0.2)','rgba(139,69,19,0.4)','rgba(139,69,19,0.5)'],
+    building: '#8b6e4b',
+    autoSatellite: false
+  },
+  magma: {
+    mapBg: '#0c0408', water: '#1a0000', river: '#ff4820', textColor: '#ffcc30',
+    contour: '#000000',
+    shadow:['rgba(0,0,0,0.6)','rgba(0,0,0,0.8)','rgba(0,0,0,1)'],
+    highlight:['rgba(255,72,32,0.1)','rgba(255,72,32,0.2)','rgba(255,204,48,0.3)','rgba(255,255,96,0.5)'],
+    accent:['rgba(200,0,0,0.2)','rgba(200,0,0,0.4)','rgba(255,72,32,0.6)'],
+    building: '#ff4820',
+    autoSatellite: false
+  },
+  esmeralda: {
+    mapBg: '#05120a', water: '#020804', river: '#00ff88', textColor: '#00ff88',
+    contour: '#000000',
+    shadow:['rgba(0,0,0,0.6)','rgba(0,0,0,0.8)','rgba(0,0,0,1)'],
+    highlight:['rgba(0,255,136,0.1)','rgba(0,255,136,0.2)','rgba(0,255,136,0.3)','rgba(0,255,136,0.5)'],
+    accent:['rgba(0,100,50,0.2)','rgba(0,100,50,0.4)','rgba(0,200,100,0.6)'],
+    building: '#00ff88',
+    autoSatellite: true
+  },
+  mdt: {
+    mapBg: '#f5f5dc', water: '#a8d8ea', river: '#4a90a4', textColor: '#2c3e50',
+    contour: '#000000',
+    shadow:['rgba(44,62,80,0.3)','rgba(44,62,80,0.5)','rgba(44,62,80,0.7)'],
+    highlight:['rgba(255,255,255,0.3)','rgba(255,255,255,0.6)','rgba(255,255,255,0.8)','rgba(255,255,255,1)'],
+    accent:['rgba(100,140,80,0.2)','rgba(100,140,80,0.4)','rgba(100,140,80,0.6)'],
+    building: '#5d6d7e',
+    autoSatellite: false,
+    hypsoColors: [
+      'interpolate', ['linear'], getElevation,
+      0, '#2d5016', 200, '#4a7c2e', 500, '#7a9f5e', 1000, '#c9b896',
+      2000, '#a67c52', 3000, '#8b6e4b', 4000, '#6b543f', 5000, '#ffffff'
+    ]
+  }
+};
+
+let currentTheme = 'pergaminho';
+let pitchOn = true;
+
+const layerGroups = {
+  hypsometry: ['hypsometry-color'],
+  hillshade:  ['hillshade'],
+  contours:   ['contour-lines', 'contour-labels'],
+  rivers:     [],
+  water:      [],
+  buildings:  ['buildings-3d'],
+  satellite:  ['satellite-layer']
+};
+
+const layerState = {hypsometry:true, hillshade:true, contours:true, rivers:true, water:true, buildings:false, satellite:false};
+
+/* ── VARIÁVEIS DO SISTEMA DE POLÍGONOS ──────────────────────────────────── */
+let drawingMode = false;
+let editingMode = false;
+let currentPolygon = null;
+let polygonCoordinates = [];
+let vertexMarkers = [];
+let selectedPolygonSource = null;
+
+const POLYGON_STYLES = {
+  fill: 'rgba(30, 100, 220, 0.35)',
+  outline: '#ffffff',
+  vertex: '#ffffff',
+  vertexActive: '#c62828'
+};
+
+/* ── UTILITÁRIOS DE CARREGAMENTO ───────────────────────────────────────── */
+const lbar = document.getElementById('lbar');
+const loadMsg = document.getElementById('load-msg');
+function prog(p, msg) { lbar.style.width=p+'%'; loadMsg.textContent=msg; }
+
+/* ── FUNÇÕES DE TEMA E CAMADAS ─────────────────────────────────────────── */
+function toggleLayer(name) {
+  if (name === 'satellite') return;
+  layerState[name] = !layerState[name];
+  document.getElementById('lr-'+name).classList.toggle('off', !layerState[name]);
+  if (!map.isStyleLoaded()) return;
+  const v = layerState[name] ? 'visible' : 'none';
+  (layerGroups[name] || []).forEach(id => { try { map.setLayoutProperty(id, 'visibility', v); } catch(e){} });
+}
+
+function setTheme(name) {
+  currentTheme = name;
+  document.querySelectorAll('.theme-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('th-'+name).classList.add('active');
+  if (!map.isStyleLoaded()) return;
+  applyThemeToMap(name);
+}
+
+function applyThemeToMap(name) {
+  const t = THEMES[name];
+  if (!t) return;
+  
+  document.documentElement.style.setProperty('--bg', t.mapBg);
+  document.documentElement.style.setProperty('--surface', t.mapBg);
+  document.documentElement.style.setProperty('--surface2', t.mapBg);
+  document.documentElement.style.setProperty('--accent', t.river);
+  document.documentElement.style.setProperty('--text', t.textColor);
+  document.documentElement.style.setProperty('--border', t.textColor + '33');
+  document.documentElement.style.setProperty('--border-strong', t.textColor + '88');
+
+  // Cores do polígono fixas para contraste independente do tema
+  POLYGON_STYLES.fill = 'rgba(30, 100, 220, 0.35)';
+  POLYGON_STYLES.outline = '#ffffff';
+  POLYGON_STYLES.vertex = '#ffffff';
+  
+  if (selectedPolygonSource && map.getLayer(selectedPolygonSource + '-fill')) {
+    map.setPaintProperty(selectedPolygonSource + '-fill', 'fill-color', POLYGON_STYLES.fill);
+    map.setPaintProperty(selectedPolygonSource + '-fill', 'fill-outline-color', POLYGON_STYLES.outline);
+    map.setPaintProperty(selectedPolygonSource + '-outline', 'line-color', POLYGON_STYLES.outline);
+  }
+
+  map.getStyle().layers.forEach(l => {
+    if (l.type === 'background') map.setPaintProperty(l.id,'background-color',t.mapBg);
+    if (/boundary|admin/.test(l.id) && l.type === 'line') {
+      map.setPaintProperty(l.id,'line-color', t.textColor); 
+      map.setPaintProperty(l.id,'line-dasharray',[3, 3]);
+    }
+  });
+
+  layerGroups.water.forEach(id => { try { map.setPaintProperty(id,'fill-color',t.water); } catch(e) {} });
+  layerGroups.rivers.forEach(id => { try { map.setPaintProperty(id,'line-color',t.river); } catch(e) {} });
+
+  try {
+    map.setPaintProperty('contour-lines', 'line-color', t.contour);
+    map.setPaintProperty('contour-labels', 'text-color', t.textColor);
+    map.setPaintProperty('contour-labels', 'text-halo-color', t.mapBg);
+  } catch(e) {}
+
+  try {
+    if (t.hypsoColors) {
+      map.setPaintProperty('hypsometry-color','hillshade-shadow-color', t.hypsoColors);
+    } else {
+      map.setPaintProperty('hypsometry-color','hillshade-shadow-color',[
+        'interpolate',['linear'],['zoom'], 2,t.shadow[0], 8,t.shadow[1], 12,t.shadow[2]
+      ]);
+    }
+    map.setPaintProperty('hypsometry-color','hillshade-highlight-color',[
+      'interpolate',['linear'],['zoom'], 2,t.highlight[0], 6,t.highlight[1], 8,t.highlight[2], 12,t.highlight[3]
+    ]);
+    map.setPaintProperty('hypsometry-color','hillshade-accent-color',[
+      'interpolate',['linear'],['zoom'], 2,t.accent[0], 6,t.accent[1], 10,t.accent[2]
+    ]);
+  } catch(e) {}
+
+  try { map.setPaintProperty('buildings-3d', 'fill-extrusion-color', t.building); } catch(e) {}
+  
+  try {
+    const satVisibility = t.autoSatellite ? 'visible' : 'none';
+    map.setLayoutProperty('satellite-layer', 'visibility', satVisibility);
+    layerState.satellite = t.autoSatellite;
+  } catch(e) {}
+}
+
+function togglePitch() {
+  pitchOn = !pitchOn;
+  const btn = document.getElementById('pitch-btn');
+  btn.classList.toggle('active', pitchOn);
+  btn.textContent = '3D: ' + (pitchOn ? 'ON' : 'OFF');
+  map.easeTo({ pitch: pitchOn ? 30 : 0, duration: 600 });
+}
+
+/* ── FUNÇÕES DO PAINEL DE POLÍGONOS ────────────────────────────────────── */
+function openPolyPanel() {
+  document.getElementById('poly-panel').classList.add('active');
+  updatePolyButtons();
+  updateCurveNumber();
+}
+
+function closePolyPanel() {
+  document.getElementById('poly-panel').classList.remove('active');
+  if (drawingMode) cancelDrawing();
+}
+
+function updatePolyButtons() {
+  const hasPolygon = currentPolygon !== null;
+  const hasCoords = polygonCoordinates.length > 0;
+  
+  document.getElementById('btn-edit').disabled = !hasPolygon;
+  document.getElementById('btn-delete').disabled = !hasPolygon;
+  document.getElementById('btn-undo').disabled = !hasCoords || drawingMode;
+  document.getElementById('area-section').style.display = hasPolygon ? 'block' : 'none';
+}
+
+/* ── CÁLCULO DO CURVE NUMBER ───────────────────────────────────────────── */
+function updateCurveNumber() {
+  if (!currentPolygon) {
+    document.getElementById('cn-display').style.display = 'none';
+    return;
+  }
+  
+  const soilType = document.getElementById('soil-type').value;
+  const landUse = document.getElementById('land-use').value;
+  const amc = document.getElementById('amc-condition').value;
+  
+  const cnBase = CURVE_NUMBERS[landUse]?.[soilType] || 75;
+  
+  let cnAdjusted;
+  if (amc === 'I') {
+    cnAdjusted = cnBase / (2.334 - 0.01334 * cnBase);
+  } else if (amc === 'III') {
+    cnAdjusted = cnBase / (0.4036 + 0.00597 * cnBase);
+  } else {
+    cnAdjusted = cnBase;
+  }
+  
+  cnAdjusted = Math.round(Math.min(98, Math.max(30, cnAdjusted)));
+  
+  document.getElementById('cn-value').textContent = cnAdjusted;
+  document.getElementById('cn-display').style.display = 'block';
+  
+  return cnAdjusted;
+}
+
+/* ── FÓRMULAS HIDROLÓGICAS PROFISSIONAIS ───────────────────────────────── */
+
+/* SCS-CN: Calcular escoamento direto (mm) */
+function calculateSCSCN(rainfall_mm, curveNumber, iamc_ratio = 0.2) {
+  const S = (25400 / curveNumber) - 254;
+  const Ia = iamc_ratio * S;
+  
+  if (rainfall_mm <= Ia) {
+    return 0;
+  }
+  
+  const Q = Math.pow(rainfall_mm - Ia, 2) / (rainfall_mm - Ia + S);
+  return Math.max(0, Q);
+}
+
+/* Kirpich: Estimar tempo de concentração (minutos) */
+function estimateTimeOfConcentration(polygon) {
+  try {
+    const area_km2 = turf.area(polygon) / 1_000_000;
+    // L = comprimento hidráulico estimado (km) → converter para metros
+    const L_km = Math.sqrt(area_km2) * 1.5;
+    const L_m = L_km * 1000;
+    // Usa a declividade real do input do usuário (%)
+    const slopePercent = parseFloat(document.getElementById('river-slope-input')?.value) || 0.2;
+    const S = slopePercent / 100; // declividade em m/m
+    
+    // Fórmula de Kirpich: tc = 0.0195 * L^0.77 * S^-0.385 (L em metros, resultado em minutos)
+    const tc_minutes = 0.0195 * Math.pow(L_m, 0.77) * Math.pow(S, -0.385);
+    return Math.max(5, Math.min(480, tc_minutes));
+  } catch (e) {
+    console.warn('Erro ao calcular tempo de concentração:', e);
+    return 30;
+  }
+}
+
+/* Método Racional Modificado (SCS): Calcular vazão de pico (m³/s) */
+function calculatePeakFlow(runoff_mm, area_km2, tc_minutes, rainfall_duration_h) {
+  // Fórmula Racional: Q = 0.278 * C * i * A
+  // C = coeficiente de escoamento adimensional = runoff / chuva total [0-1]
+  // i = intensidade da CHUVA TOTAL em mm/h (não do escoamento)
+  // A = área em km²
+  const rainfall_total = parseFloat(document.getElementById('rainfall-input').value) || runoff_mm;
+  const C = Math.min(1.0, runoff_mm / rainfall_total);       // adimensional
+  const intensity_mmh = rainfall_total / rainfall_duration_h; // mm/h da chuva bruta
+  const peakFlow = 0.278 * C * intensity_mmh * area_km2;
+  return Math.max(0, peakFlow);
+}
+
+/* Manning completo: Calcular elevação do rio baseado na vazão de pico */
+function calculateLevelRiseDynamic(peakFlow_m3s, riverWidth_m, riverSlope = 0.002) {
+  const manningN = 0.035; // canal natural com vegetação moderada
+  const slopeTerm = Math.pow(riverSlope, 0.5);
+  
+  // Manning: Q = (1/n) * A * R^(2/3) * S^(1/2)
+  // Para seção retangular: A = w*y, R = (w*y)/(w+2y)
+  // Resolve iterativamente para y (profundidade normal)
+  let y = 0.1; // chute inicial (m)
+  for (let i = 0; i < 50; i++) {
+    const A = riverWidth_m * y;
+    const P = riverWidth_m + 2 * y; // perímetro molhado
+    const R = A / P;                 // raio hidráulico
+    const Q_calc = (1 / manningN) * A * Math.pow(R, 2/3) * slopeTerm;
+    
+    if (Math.abs(Q_calc - peakFlow_m3s) < 0.001) break;
+    // Ajuste proporcional
+    y = y * Math.pow(peakFlow_m3s / Math.max(Q_calc, 0.0001), 0.4);
+    y = Math.max(0.01, Math.min(y, 50)); // limites físicos
+  }
+  
+  const safetyFactor = 1.15; // margem de segurança (+15%)
+  return y * safetyFactor;
+}
+
+/* ── DELIMITAÇÃO AUTOMÁTICA DE BACIA (API mghydro) ─────────────────────── */
+let autoBasinMode = false;
+
+function startAutoBasin() {
+  if (drawingMode) cancelDrawing();
+
+  autoBasinMode = true;
+  map.getCanvas().style.cursor = 'crosshair';
+  document.getElementById('auto-basin-status').style.display = 'block';
+
+  const btn = document.getElementById('btn-auto-basin');
+  btn.innerHTML = '<i class="fas fa-times"></i> Cancelar';
+  btn.onclick = cancelAutoBasin;
+  btn.style.background = '#c62828';
+  btn.style.borderColor = '#c62828';
+
+  map.once('click', handleAutoBasinClick);
+}
+
+function cancelAutoBasin() {
+  autoBasinMode = false;
+  map.getCanvas().style.cursor = '';
+  document.getElementById('auto-basin-status').style.display = 'none';
+  map.off('click', handleAutoBasinClick);
+
+  const btn = document.getElementById('btn-auto-basin');
+  btn.innerHTML = '<i class="fas fa-crosshairs"></i> Delimitar Bacia (clique no rio)';
+  btn.onclick = startAutoBasin;
+  btn.style.background = 'var(--accent)';
+  btn.style.borderColor = 'var(--accent)';
+}
+
+async function handleAutoBasinClick(e) {
+  autoBasinMode = false;
+  map.getCanvas().style.cursor = 'wait';
+
+  const { lat, lng } = e.lngLat;
+  const statusEl = document.getElementById('auto-basin-status');
+  statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Consultando API... pode levar alguns segundos';
+
+  const btn = document.getElementById('btn-auto-basin');
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Carregando...';
+  btn.disabled = true;
+
+  try {
+    const url = `https://mghydro.com/app/watershed_api?lat=${lat.toFixed(6)}&lng=${lng.toFixed(6)}&precision=high`;
+    const resp = await fetch(url);
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    // API pode retornar texto ou JSON direto
+    const raw = await resp.text();
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+      if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+    } catch(e) {
+      throw new Error('Resposta não é JSON válido');
+    }
+
+    // Suporta Feature, FeatureCollection ou Geometry direto
+    let geojson;
+    if (parsed.type === 'FeatureCollection' && parsed.features?.length > 0) {
+      geojson = parsed.features[0];
+    } else if (parsed.type === 'Feature') {
+      geojson = parsed;
+    } else if (parsed.type === 'Polygon' || parsed.type === 'MultiPolygon') {
+      geojson = { type: 'Feature', geometry: parsed, properties: {} };
+    } else if (parsed.geometry) {
+      geojson = parsed;
+    } else {
+      console.warn('Resposta bruta da API mghydro:', parsed);
+      throw new Error('Formato não reconhecido — veja o console (F12) para detalhes.');
+    }
+
+    if (!geojson.geometry) throw new Error('Geometria ausente na resposta');
+
+    // Remove bacia anterior se existir
+    if (currentPolygon && selectedPolygonSource) {
+      ['fill', 'outline'].forEach(s => {
+        const lid = selectedPolygonSource + '-' + s;
+        if (map.getLayer(lid)) map.removeLayer(lid);
+      });
+      if (map.getSource(selectedPolygonSource)) map.removeSource(selectedPolygonSource);
+    }
+
+    // Extrai coordenadas — suporta Polygon e MultiPolygon
+    let coords = geojson.geometry.coordinates;
+    if (geojson.geometry.type === 'MultiPolygon') {
+      coords = coords.reduce((a, b) => (a[0].length > b[0].length ? a : b));
+    }
+
+    currentPolygon = {
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: coords },
+      properties: {
+        id: 'basin-' + Date.now(),
+        name: 'Bacia Auto ' + new Date().toLocaleTimeString(),
+        area: 0,
+        perimeter: 0
+      }
+    };
+
+    // Usa os vértices externos como coordenadas editáveis
+    polygonCoordinates = coords[0].slice(0, -1);
+
+    calculatePolygonMetrics();
+    addPolygonToMap();
+    updatePolyButtons();
+    updateCurveNumber();
+    document.getElementById('area-section').style.display = 'block';
+
+    // Zoom para a bacia
+    const bounds = polygonCoordinates.reduce((b, c) => {
+      return [[Math.min(b[0][0], c[0]), Math.min(b[0][1], c[1])],
+              [Math.max(b[1][0], c[0]), Math.max(b[1][1], c[1])]];
+    }, [[lng, lat], [lng, lat]]);
+    map.fitBounds(bounds, { padding: 60, duration: 1200 });
+
+    statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Bacia delimitada com sucesso!';
+    statusEl.style.color = '#2e7d32';
+    setTimeout(() => {
+      statusEl.style.display = 'none';
+      statusEl.style.color = 'var(--accent)';
+    }, 3000);
+
+  } catch (err) {
+    console.error('Erro na delimitação automática:', err);
+    statusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> Erro: ${err.message}. Tente outro ponto ou use o desenho manual.`;
+    statusEl.style.color = '#c62828';
+    setTimeout(() => {
+      statusEl.style.display = 'none';
+      statusEl.style.color = 'var(--accent)';
+    }, 5000);
+  } finally {
+    map.getCanvas().style.cursor = '';
+    btn.innerHTML = '<i class="fas fa-crosshairs"></i> Delimitar Bacia (clique no rio)';
+    btn.onclick = startAutoBasin;
+    btn.disabled = false;
+    btn.style.background = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+  }
+}
+
+/* ── SISTEMA DE DESENHO DE POLÍGONOS ───────────────────────────────────── */
+function startDrawing() {
+  if (editingMode) toggleEdit();
+  drawingMode = true;
+  polygonCoordinates = [];
+  document.body.classList.add('drawing-polygon');
+  document.getElementById('btn-start-draw').innerHTML = '<i class="fas fa-check"></i> Concluir';
+  document.getElementById('btn-start-draw').onclick = finishDrawing;
+  updatePolyButtons();
+  
+  if (map.getSource('draw-temp')) {
+    map.getSource('draw-temp').setData({ type: 'FeatureCollection', features: [] });
+  } else {
+    map.addSource('draw-temp', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+    
+    map.addLayer({
+      id: 'draw-polygon',
+      type: 'fill',
+      source: 'draw-temp',
+      paint: { 'fill-color': POLYGON_STYLES.fill, 'fill-opacity': 0.4 }
+    });
+    
+    map.addLayer({
+      id: 'draw-line',
+      type: 'line',
+      source: 'draw-temp',
+      paint: { 'line-color': POLYGON_STYLES.outline, 'line-width': 2, 'line-dasharray': [4, 2] }
+    });
+  }
+  
+  map.on('click', handleMapClickDraw);
+  map.on('mousemove', handleMouseMoveDraw);
+}
+
+function handleMapClickDraw(e) {
+  if (!drawingMode) return;
+  
+  const coord = [e.lngLat.lng, e.lngLat.lat];
+  polygonCoordinates.push(coord);
+  
+  updateTempPolygon();
+  
+  if (polygonCoordinates.length === 1) {
+    addVertexMarker(coord, true);
+  } else {
+    addVertexMarker(coord, false);
+  }
+  
+  updatePolyButtons();
+}
+
+function handleMouseMoveDraw(e) {
+  if (!drawingMode || polygonCoordinates.length === 0) return;
+  
+  const coords = [...polygonCoordinates, [e.lngLat.lng, e.lngLat.lat]];
+  map.getSource('draw-temp').setData({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: { type: 'LineString', coordinates: coords },
+      properties: {}
+    }]
+  });
+}
+
+function updateTempPolygon() {
+  if (polygonCoordinates.length < 2) return;
+  
+  const coords = polygonCoordinates.length >= 3 
+    ? [...polygonCoordinates, polygonCoordinates[0]] 
+    : polygonCoordinates;
+    
+  map.getSource('draw-temp').setData({
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: { 
+        type: polygonCoordinates.length >= 3 ? 'Polygon' : 'LineString',
+        coordinates: polygonCoordinates.length >= 3 ? [coords] : coords
+      },
+      properties: {}
+    }]
+  });
+}
+
+function addVertexMarker(coord, isFirst) {
+  const el = document.createElement('div');
+  el.style.cssText = `
+    width: ${isFirst ? '14px' : '10px'}; height: ${isFirst ? '14px' : '10px'};
+    background: ${isFirst ? POLYGON_STYLES.vertexActive : POLYGON_STYLES.vertex};
+    border: 2px solid ${document.documentElement.style.getPropertyValue('--surface')};
+    border-radius: 50%; cursor: ${isFirst ? 'pointer' : 'move'};
+    transition: transform 0.2s;
+  `;
+  el.addEventListener('mouseenter', (e) => e.target.style.transform = 'scale(1.3)');
+  el.addEventListener('mouseleave', (e) => e.target.style.transform = 'scale(1)');
+  
+  if (isFirst && polygonCoordinates.length > 2) {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      finishDrawing();
+    });
+    el.title = 'Clique para fechar o polígono';
+  }
+  
+  const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+    .setLngLat(coord)
+    .addTo(map);
+    
+  if (!isFirst) {
+    makeVertexDraggable(marker, coord, vertexMarkers.length - 1);
+  }
+  
+  vertexMarkers.push(marker);
+}
+
+function makeVertexDraggable(marker, initialCoord, index) {
+  let isDragging = false;
+  const el = marker.getElement();
+  
+  el.addEventListener('mousedown', (e) => {
+    if (!editingMode) return;
+    e.stopPropagation();
+    isDragging = true;
+    document.body.classList.add('editing-vertex');
+    el.style.transform = 'scale(1.5)';
+  });
+  
+  const onMove = (e) => {
+    if (!isDragging || !editingMode) return;
+    e.preventDefault();
+    const coords = map.unproject([e.point.x, e.point.y]);
+    const newCoord = [coords.lng, coords.lat];
+    polygonCoordinates[index] = newCoord;
+    marker.setLngLat(newCoord);
+    updateFinalPolygon();
+  };
+  
+  const onUp = () => {
+    if (!isDragging) return;
+    isDragging = false;
+    document.body.classList.remove('editing-vertex');
+    el.style.transform = 'scale(1)';
+    updatePolyButtons();
+    updateCurveNumber();
+  };
+  
+  map.on('mousemove', onMove);
+  map.on('mouseup', onUp);
+  map.on('mouseleave', onUp);
+  
+  marker.onRemove = () => {
+    map.off('mousemove', onMove);
+    map.off('mouseup', onUp);
+    map.off('mouseleave', onUp);
+  };
+}
+
+function finishDrawing() {
+  if (polygonCoordinates.length < 3) {
+    alert('Mínimo de 3 pontos para criar um polígono.');
+    return;
+  }
+  
+  const first = polygonCoordinates[0];
+  const last = polygonCoordinates[polygonCoordinates.length - 1];
+  if (first[0] !== last[0] || first[1] !== last[1]) {
+    polygonCoordinates.push([...first]);
+  }
+  
+  currentPolygon = {
+    type: 'Feature',
+    geometry: { type: 'Polygon', coordinates: [polygonCoordinates] },
+    properties: {
+      id: 'basin-' + Date.now(),
+      name: 'Bacia ' + new Date().toLocaleTimeString(),
+      area: 0,
+      perimeter: 0
+    }
+  };
+  
+  calculatePolygonMetrics();
+  addPolygonToMap();
+  cancelDrawing();
+  updatePolyButtons();
+  updateCurveNumber();
+  document.getElementById('area-section').style.display = 'block';
+}
+
+function cancelDrawing() {
+  drawingMode = false;
+  document.body.classList.remove('drawing-polygon');
+  document.getElementById('btn-start-draw').innerHTML = '<i class="fas fa-pencil-alt"></i> Desenhar';
+  document.getElementById('btn-start-draw').onclick = startDrawing;
+  
+  map.off('click', handleMapClickDraw);
+  map.off('mousemove', handleMouseMoveDraw);
+  
+  if (map.getSource('draw-temp')) {
+    map.getSource('draw-temp').setData({ type: 'FeatureCollection', features: [] });
+  }
+  
+  vertexMarkers.forEach(m => m.remove());
+  vertexMarkers = [];
+  polygonCoordinates = [];
+  
+  updatePolyButtons();
+}
+
+function undoVertex() {
+  if (polygonCoordinates.length <= 1) {
+    clearDrawing();
+    return;
+  }
+  polygonCoordinates.pop();
+  if (vertexMarkers.length > 0) {
+    vertexMarkers.pop().remove();
+  }
+  updateTempPolygon();
+  updatePolyButtons();
+}
+
+function clearDrawing() {
+  cancelDrawing();
+  if (map.getSource('draw-temp')) {
+    map.getSource('draw-temp').setData({ type: 'FeatureCollection', features: [] });
+  }
+}
+
+function addPolygonToMap() {
+  const polyId = currentPolygon.properties.id;
+  
+  if (map.getSource(polyId)) {
+    map.getSource(polyId).setData(currentPolygon);
+  } else {
+    map.addSource(polyId, {
+      type: 'geojson',
+      data: currentPolygon
+    });
+    
+    map.addLayer({
+      id: polyId + '-fill',
+      type: 'fill',
+      source: polyId,
+      paint: {
+        'fill-color': POLYGON_STYLES.fill,
+        'fill-opacity': 0.4,
+        'fill-outline-color': POLYGON_STYLES.outline
+      }
+    });
+    
+    map.addLayer({
+      id: polyId + '-outline',
+      type: 'line',
+      source: polyId,
+      paint: {
+        'line-color': POLYGON_STYLES.outline,
+        'line-width': 2
+      }
+    });
+    
+    map.on('click', polyId + '-fill', (e) => {
+      e.originalEvent.stopPropagation();
+      selectPolygon(polyId);
+    });
+    
+    map.on('mouseenter', polyId + '-fill', () => {
+      map.getCanvas().style.cursor = 'pointer';
+    });
+    map.on('mouseleave', polyId + '-fill', () => {
+      map.getCanvas().style.cursor = '';
+    });
+  }
+  
+  selectedPolygonSource = polyId;
+}
+
+function updateFinalPolygon() {
+  if (!currentPolygon || !selectedPolygonSource) return;
+  
+  currentPolygon.geometry.coordinates = [polygonCoordinates];
+  map.getSource(selectedPolygonSource).setData(currentPolygon);
+  calculatePolygonMetrics();
+  updateCurveNumber();
+}
+
+function calculatePolygonMetrics() {
+  if (!currentPolygon) return;
+  
+  try {
+    const areaM2 = turf.area(currentPolygon);
+    const perimeterM = turf.length(currentPolygon, { units: 'meters' }) * 1000;
+    
+    let areaValue, areaUnit;
+    if (areaM2 >= 1000000) {
+      areaValue = (areaM2 / 1000000).toFixed(2);
+      areaUnit = 'km²';
+    } else if (areaM2 >= 10000) {
+      areaValue = (areaM2 / 10000).toFixed(2);
+      areaUnit = 'hectares';
+    } else {
+      areaValue = Math.round(areaM2).toLocaleString('pt-BR');
+      areaUnit = 'm²';
+    }
+    
+    document.getElementById('area-value').textContent = areaValue;
+    document.getElementById('area-unit').textContent = areaUnit;
+    document.getElementById('perimeter-value').textContent = 
+      perimeterM >= 1000 ? (perimeterM/1000).toFixed(2) + ' km' : Math.round(perimeterM) + ' m';
+    
+    currentPolygon.properties.area = areaM2;
+    currentPolygon.properties.perimeter = perimeterM;
+    
+  } catch (e) {
+    console.warn('Erro ao calcular métricas:', e);
+  }
+}
+
+function selectPolygon(sourceId) {
+  selectedPolygonSource = sourceId;
+  
+  map.setPaintProperty(sourceId + '-fill', 'fill-opacity', 0.6);
+  
+  polygonCoordinates = currentPolygon.geometry.coordinates[0].slice(0, -1);
+  
+  if (editingMode) {
+    vertexMarkers.forEach(m => m.remove());
+    vertexMarkers = [];
+    polygonCoordinates.forEach((coord, i) => {
+      addVertexMarker(coord, i === 0);
+    });
+  }
+  
+  updatePolyButtons();
+  updateCurveNumber();
+  
+  const center = turf.centerOfMass(currentPolygon).geometry.coordinates;
+  new maplibregl.Popup()
+    .setLngLat(center)
+    .setHTML(`
+      <strong style="color:var(--text)">${currentPolygon.properties.name}</strong><br>
+      <small style="color:var(--text-muted)">Área: ${document.getElementById('area-value').textContent} ${document.getElementById('area-unit').textContent}</small>
+    `)
+    .addTo(map);
+}
+
+function toggleEdit() {
+  editingMode = !editingMode;
+  const btn = document.getElementById('btn-edit');
+  
+  if (editingMode && currentPolygon) {
+    btn.innerHTML = '<i class="fas fa-save"></i> Salvar';
+    btn.classList.add('primary');
+    
+    vertexMarkers.forEach(m => m.remove());
+    vertexMarkers = [];
+    polygonCoordinates = currentPolygon.geometry.coordinates[0].slice(0, -1);
+    
+    polygonCoordinates.forEach((coord, i) => {
+      addVertexMarker(coord, i === 0);
+    });
+    
+    map.getCanvas().style.cursor = 'default';
+  } else {
+    btn.innerHTML = '<i class="fas fa-edit"></i> Editar';
+    btn.classList.remove('primary');
+    
+    vertexMarkers.forEach(m => m.remove());
+    vertexMarkers = [];
+    
+    if (selectedPolygonSource) {
+      map.setPaintProperty(selectedPolygonSource + '-fill', 'fill-opacity', 0.4);
+    }
+  }
+}
+
+function deletePolygon() {
+  if (!selectedPolygonSource) return;
+  
+  if (confirm('Excluir esta bacia hidrográfica?')) {
+    ['fill', 'outline'].forEach(suffix => {
+      const layerId = selectedPolygonSource + '-' + suffix;
+      if (map.getLayer(layerId)) map.removeLayer(layerId);
+    });
+    
+    if (map.getSource(selectedPolygonSource)) {
+      map.removeSource(selectedPolygonSource);
+    }
+    
+    currentPolygon = null;
+    selectedPolygonSource = null;
+    polygonCoordinates = [];
+    vertexMarkers.forEach(m => m.remove());
+    vertexMarkers = [];
+    
+    document.getElementById('area-section').style.display = 'none';
+    document.getElementById('hydro-results').style.display = 'none';
+    document.getElementById('cn-display').style.display = 'none';
+    
+    updatePolyButtons();
+  }
+}
+
+/* ── CALCULADOR HIDROLÓGICO SCS-CN ────────────────────────────────────── */
+function calculateHydrology() {
+  if (!currentPolygon) {
+    alert('Selecione ou crie uma bacia hidrográfica primeiro.');
+    return;
+  }
+  
+  const rainfall = parseFloat(document.getElementById('rainfall-input').value);
+  const riverWidth = parseFloat(document.getElementById('river-width-input').value);
+  const riverLength = parseFloat(document.getElementById('river-length-input').value);
+  const rainfallDuration = parseFloat(document.getElementById('rainfall-duration').value) || 1;
+  const riverSlopePercent = parseFloat(document.getElementById('river-slope-input')?.value) || 0.2;
+  
+  if (!rainfall || !riverWidth || !riverLength) {
+    alert('Preencha todos os campos: chuva, largura e trecho do rio.');
+    return;
+  }
+  
+  const curveNumber = updateCurveNumber();
+  const areaM2 = currentPolygon.properties.area;
+  const areaKm2 = areaM2 / 1_000_000;
+  
+  // 1. Escoamento SCS-CN (mm)
+  const runoffMm = calculateSCSCN(rainfall, curveNumber);
+  
+  // 2. Volume total (m³)
+  const runoffVolumeM3 = runoffMm * areaM2 / 1000;
+  
+  // 3. Tempo de concentração (min)
+  const tcMinutes = estimateTimeOfConcentration(currentPolygon);
+  
+  // 4. Vazão de pico (m³/s)
+  const peakFlow = calculatePeakFlow(runoffMm, areaKm2, tcMinutes, rainfallDuration);
+  
+  // 5. ✅ ELEVAÇÃO CORRIGIDA: baseada na vazão de pico + Manning
+  const riverSlope = riverSlopePercent / 100;
+  const levelRiseM = calculateLevelRiseDynamic(peakFlow, riverWidth, riverSlope);
+  
+  // Exibir resultados
+  document.getElementById('result-cn').textContent = curveNumber;
+  document.getElementById('result-runoff').textContent = runoffMm.toFixed(1) + ' mm';
+  document.getElementById('result-volume').textContent = formatVolume(runoffVolumeM3);
+  document.getElementById('result-tc').textContent = tcMinutes >= 60 ? 
+    (tcMinutes/60).toFixed(1) + ' h' : Math.round(tcMinutes) + ' min';
+  document.getElementById('result-peak').textContent = peakFlow.toFixed(2) + ' m³/s';
+  
+  let levelText = levelRiseM >= 1 ? 
+    levelRiseM.toFixed(2) + ' m' : (levelRiseM * 100).toFixed(1) + ' cm';
+  
+  if (levelRiseM > 2) {
+    levelText += ' ⚠️';
+    document.getElementById('result-level').style.color = '#c62828';
+  } else if (levelRiseM > 1) {
+    document.getElementById('result-level').style.color = '#ef6c00';
+  } else {
+    document.getElementById('result-level').style.color = '#2e7d32';
+  }
+  document.getElementById('result-level').textContent = levelText;
+  
+  document.getElementById('hydro-results').style.display = 'block';
+}
+
+function formatVolume(m3) {
+  if (m3 >= 1000000) return (m3 / 1000000).toFixed(2) + ' Mm³';
+  if (m3 >= 1000) return (m3 / 1000).toFixed(1) + ' mil m³';
+  return Math.round(m3).toLocaleString('pt-BR') + ' m³';
+}
+
+/* ── INICIALIZAÇÃO DO MAPA ─────────────────────────────────────────────── */
+prog(15, 'carregando tiles...');
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://tiles.openfreemap.org/styles/liberty',
+  center: [-49.8625, -29.473],
+  zoom: 10.5,
+  minZoom: 1.5, maxZoom: 18,
+  pitch: 30,
+  attributionControl: false,
+});
+
+map.addControl(new maplibregl.NavigationControl({visualizePitch:true}), 'top-left');
+
+map.on('mousemove', e => {
+  const {lng,lat} = e.lngLat;
+  document.getElementById('coords').textContent =
+    (lat>=0 ? lat.toFixed(4)+'°N' : Math.abs(lat).toFixed(4)+'°S') + '   ' +
+    (lng>=0 ? lng.toFixed(4)+'°E' : Math.abs(lng).toFixed(4)+'°W');
+  document.getElementById('zoom-display').textContent = 'Z: ' + map.getZoom().toFixed(1);
+});
+
+map.on('style.load', () => {
+  prog(40, 'aplicando matemática cartográfica robusta...');
+  const t = THEMES[currentTheme];
+  applyThemeToMap(currentTheme);
+
+  map.getStyle().layers.forEach(layer => {
+    const id = layer.id, type = layer.type;
+    if (type === 'background') { map.setPaintProperty(id,'background-color', t.mapBg); return; }
+    const isWater = /water|ocean|lake|sea/.test(id) && type === 'fill';
+    const isWaterway = /waterway|river|stream|canal/.test(id) && type === 'line';
+    const isBoundary = /boundary|admin/.test(id) && type === 'line';
+    const isLabel = type === 'symbol';
+    const isWaterLabel = isLabel && /water|river|lake|ocean|sea/.test(id);
+    const isPlaceLabel = isLabel && /place|country|state|city|town/.test(id);
+
+    if (isWater) {
+      try { map.setPaintProperty(id, 'fill-pattern', undefined); } catch(e) {}
+      map.setPaintProperty(id, 'fill-color', t.water); layerGroups.water.push(id); return;
+    }
+    if (isWaterway) {
+      map.setPaintProperty(id, 'line-color', t.river); 
+      map.setPaintProperty(id, 'line-opacity', 1.0); 
+      map.setPaintProperty(id, 'line-width',['interpolate', ['linear'], ['zoom'], 4, 1.5, 8, 3.0, 12, 5.0, 16, 8.0]);
+      layerGroups.rivers.push(id); return;
+    }
+    if (isBoundary) {
+      map.setPaintProperty(id, 'line-color', t.textColor); 
+      map.setPaintProperty(id, 'line-width', 1.5);
+      map.setPaintProperty(id, 'line-dasharray', [3, 3]);
+      map.setPaintProperty(id, 'line-opacity', 0.6); return;
+    }
+    if (isWaterLabel || isPlaceLabel) {
+      try { 
+        map.setPaintProperty(id, 'text-color', t.textColor); 
+        map.setPaintProperty(id, 'text-halo-color', t.mapBg); 
+        map.setPaintProperty(id, 'text-halo-width', 2); 
+      } catch(e){} return;
+    }
+    map.setLayoutProperty(id, 'visibility', 'none');
+  });
+
+  let firstWaterLayerId;
+  map.getStyle().layers.forEach(l => {
+    if (!firstWaterLayerId && (l.id.includes('water') || l.id.includes('river') || l.type === 'symbol')) {
+      firstWaterLayerId = l.id;
+    }
+  });
+
+  prog(55, 'adicionando relevo 3D na fundação...');
+
+  map.addSource('maptiler-dem', {
+    type: 'raster-dem',
+    url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MAPTILER_KEY}`,
+    tileSize: 256,
+  });
+  map.setTerrain({ source:'maptiler-dem', exaggeration:1.2 });
+
+  map.addLayer({
+    id: 'hypsometry-color', type: 'hillshade', source: 'maptiler-dem',
+    paint: {
+      'hillshade-shadow-color': ['interpolate',['linear'],['zoom'], 2,t.shadow[0], 8,t.shadow[1], 12,t.shadow[2]],
+      'hillshade-highlight-color': ['interpolate',['linear'],['zoom'], 2,t.highlight[0], 6,t.highlight[1], 8,t.highlight[2], 12,t.highlight[3]],
+      'hillshade-accent-color': ['interpolate',['linear'],['zoom'], 2,t.accent[0], 6,t.accent[1], 10,t.accent[2]],
+      'hillshade-illumination-direction': 315,
+      'hillshade-illumination-anchor': 'viewport',
+      'hillshade-exaggeration': ['interpolate',['linear'],['zoom'], 2,0.5, 5,0.7, 8,0.85, 12,1.0],
+    }
+  }, firstWaterLayerId);
+
+  map.addLayer({
+    id: 'hillshade', type: 'hillshade', source: 'maptiler-dem',
+    paint: {
+      'hillshade-shadow-color': 'rgba(0,0,0,0.35)',
+      'hillshade-highlight-color': 'rgba(255,255,240,0.25)',
+      'hillshade-accent-color': 'rgba(100,60,20,0.2)',
+      'hillshade-illumination-direction': 315,
+      'hillshade-illumination-anchor': 'viewport',
+      'hillshade-exaggeration': 0.4,
+    }
+  }, firstWaterLayerId);
+
+  prog(65, 'processando elevações matemáticas...');
+
+  map.addSource('contours', {
+    type: 'vector',
+    url: `https://api.maptiler.com/tiles/contours/tiles.json?key=${MAPTILER_KEY}`
+  });
+
+  map.addLayer({
+    'id': 'contour-lines', 'type': 'line', 'source': 'contours', 'source-layer': 'contour',
+    'paint': {
+      'line-color': t.contour,
+      'line-width': ['case',['==', ['%', getElevation, 500], 0], 2.2, ['==', ['%', getElevation, 100], 0], 1.2, 0.5],
+      'line-opacity': ['interpolate', ['linear'], getElevation, 0, 0.4, 2000, 1.0]
+    },
+    'layout': { 'visibility': 'visible', 'line-join': 'round', 'line-cap': 'round' }
+  }, firstWaterLayerId);
+
+  map.addLayer({
+    'id': 'contour-labels', 'type': 'symbol', 'source': 'contours', 'source-layer': 'contour',
+    'filter': ['==', ['%', getElevation, 500], 0],
+    'layout': {
+      'symbol-placement': 'line',
+      'text-field': ['concat', ['to-string', getElevation], ' m'],
+      'text-font': ['Noto Sans Regular'], 'text-size': 15, 'visibility': 'visible'
+    },
+    'paint': { 'text-color': t.textColor, 'text-halo-color': t.mapBg, 'text-halo-width': 2.5 }
+  }, firstWaterLayerId);
+
+  map.addSource('buildings', {
+    type: 'vector',
+    url: `https://api.maptiler.com/tiles/buildings/tiles.json?key=${MAPTILER_KEY}`
+  });
+  map.addLayer({
+    id: 'buildings-3d', type: 'fill-extrusion', source: 'buildings', 'source-layer': 'building',
+    paint: {
+      'fill-extrusion-color': t.building,
+      'fill-extrusion-height': ['coalesce', ['get', 'height'], 0],
+      'fill-extrusion-base': ['coalesce', ['get', 'height_min'], 0],
+      'fill-extrusion-opacity': 0.85
+    }
+  }, firstWaterLayerId);
+
+  map.addSource('satellite', {
+    type: 'raster',
+    url: `https://api.maptiler.com/tiles/satellite-v2/tiles.json?key=${MAPTILER_KEY}`
+  });
+  map.addLayer({
+    id: 'satellite-layer', type: 'raster', source: 'satellite',
+    paint: { 'raster-opacity': 0.45 },
+    layout: { visibility: layerState.satellite ? 'visible' : 'none' }
+  });
+
+  prog(100, 'pronto.');
+
+  Object.keys(layerState).forEach(name => {
+    const v = layerState[name] ? 'visible' : 'none';
+    (layerGroups[name] || []).forEach(id => { try { map.setLayoutProperty(id, 'visibility', v); } catch(e){} });
+  });
+
+  setTimeout(() => {
+    document.getElementById('loading').classList.add('hide');
+    setTimeout(() => { const el=document.getElementById('loading'); if(el)el.remove(); }, 1000);
+  }, 400);
+});
+
+map.on('error', e => {
+  console.warn('MapLibre:', e.error?.message||e);
+  if (loadMsg) {
+    loadMsg.textContent = 'Erro ao carregar. Verifique conexão/API.';
+    loadMsg.style.color = '#c62828';
+  }
+});
+</script>
+</body>
+</html>
