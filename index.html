@@ -314,20 +314,89 @@ body.editing-vertex { cursor: move; }
 .method-badge.scs { background: var(--accent); color: #fff; }
 .method-badge.simple { background: var(--border); color: var(--text-dim); }
 
+/* ── Hamburguer button ───────────────────────────────────────────────────── */
+#hamburger {
+  display: none;
+  flex-direction: column; justify-content: center; align-items: center;
+  gap: 5px; width: 40px; height: 40px;
+  background: transparent; border: 1px solid var(--border);
+  border-radius: 2px; cursor: pointer; transition: all 0.2s;
+}
+#hamburger:hover { border-color: var(--accent); }
+#hamburger span {
+  display: block; width: 18px; height: 2px;
+  background: var(--text); border-radius: 2px; transition: all 0.3s;
+}
+#hamburger.open span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+#hamburger.open span:nth-child(2) { opacity: 0; }
+#hamburger.open span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+/* Overlay do menu mobile */
+#menu-overlay {
+  display: none;
+  position: fixed; inset: 0; z-index: 190;
+  background: rgba(0,0,0,0.4);
+}
+#menu-overlay.active { display: block; }
+
 /* Responsividade mobile */
 @media (max-width: 768px) {
-  #poly-panel {
-    width: calc(100vw - 48px);
-    right: 24px;
-    left: 24px;
-    max-height: 70vh;
+  /* Header */
+  #header { padding: 0 12px; height: 56px; }
+  #header-meta { display: none; }
+  #header-divider { display: none; }
+  #logo { font-size: 18px; }
+  #live-dot { display: none; }
+  #hamburger { display: flex; }
+
+  /* Left controls vira drawer lateral */
+  #left-controls {
+    position: fixed;
+    top: 0; left: -280px;
+    width: 270px; height: 100vh;
+    z-index: 300;
+    background: var(--surface);
+    border-right: 2px solid var(--border-strong);
+    border-radius: 0;
+    padding: 70px 0 20px 0;
     overflow-y: auto;
+    transition: left 0.3s cubic-bezier(0.16,1,0.3,1);
+    box-shadow: 4px 0 20px rgba(0,0,0,0.2);
+    gap: 0;
+  }
+  #left-controls.open { left: 0; }
+  #layers, #themes {
+    border: none !important;
+    border-radius: 0 !important;
+    border-bottom: 1px solid var(--border) !important;
+    box-shadow: none !important;
+    width: 100%;
+  }
+
+  /* Painel de polígonos */
+  #poly-panel {
+    position: fixed;
+    bottom: 0; left: 0; right: 0; top: auto;
+    width: 100%;
+    max-height: 75vh;
+    border-radius: 12px 12px 0 0;
+    border: none;
+    border-top: 2px solid var(--border-strong);
+    overflow-y: auto;
+    z-index: 250;
   }
   .poly-input-row { flex-direction: column; gap: 8px; }
-  #left-controls { width: 200px; }
-  #header { padding: 0 16px; }
-  #bottom-bar { padding: 0 16px; flex-wrap: wrap; height: auto; padding: 8px 16px; }
-  #coords { min-width: auto; font-size: 13px; }
+  .poly-btn { padding: 10px 12px; font-size: 15px; }
+
+  /* Bottom bar */
+  #bottom-bar { padding: 0 12px; height: 36px; }
+  #badge { display: none; }
+  #coords { font-size: 12px; min-width: auto; }
+  #zoom-display { font-size: 12px; }
+
+  /* Botão de bacias no header fica menor */
+  #poly-toggle { padding: 6px 10px; font-size: 13px; }
+  #poly-toggle span.label-text { display: none; }
 }
 </style>
 </head>
@@ -354,11 +423,17 @@ body.editing-vertex { cursor: move; }
   </div>
   <div id="header-right">
     <button id="poly-toggle" onclick="openPolyPanel()" title="Ferramentas de Bacia Hidrográfica">
-      <i class="fas fa-draw-polygon"></i> Bacias
+      <i class="fas fa-draw-polygon"></i> <span class="label-text">Bacias</span>
     </button>
     <div id="live-dot">MapTiler Terrain</div>
+    <button id="hamburger" onclick="toggleMenu()" title="Menu">
+      <span></span><span></span><span></span>
+    </button>
   </div>
 </div>
+
+<!-- Menu overlay mobile -->
+<div id="menu-overlay" onclick="closeMenu()"></div>
 
 <!-- Left controls -->
 <div id="left-controls">
@@ -1553,6 +1628,29 @@ function formatVolume(m3) {
   if (m3 >= 1000000) return (m3 / 1000000).toFixed(2) + ' Mm³';
   if (m3 >= 1000) return (m3 / 1000).toFixed(1) + ' mil m³';
   return Math.round(m3).toLocaleString('pt-BR') + ' m³';
+}
+
+/* ── MENU MOBILE ──────────────────────────────────────────────────────────── */
+function toggleMenu() {
+  const lc = document.getElementById('left-controls');
+  const hb = document.getElementById('hamburger');
+  const ov = document.getElementById('menu-overlay');
+  const isOpen = lc.classList.contains('open');
+  if (isOpen) {
+    lc.classList.remove('open');
+    hb.classList.remove('open');
+    ov.classList.remove('active');
+  } else {
+    lc.classList.add('open');
+    hb.classList.add('open');
+    ov.classList.add('active');
+  }
+}
+
+function closeMenu() {
+  document.getElementById('left-controls').classList.remove('open');
+  document.getElementById('hamburger').classList.remove('open');
+  document.getElementById('menu-overlay').classList.remove('active');
 }
 
 /* ── INICIALIZAÇÃO DO MAPA ─────────────────────────────────────────────── */
